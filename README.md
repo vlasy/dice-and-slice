@@ -1,5 +1,7 @@
 # 🎲🍕 Dice & Slice — Dungeon Pizzeria
 
+**▶️ Play it: https://vlasy.github.io/dice-and-slice/**
+
 A funny, mobile-first web game inspired by **Slice & Dice** (dice-driven tactics) crossed with
 **tavern management sims** — except nobody sane runs a tavern, so you run the only
 **pizzeria in a dungeon**.
