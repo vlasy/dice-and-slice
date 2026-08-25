@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#241b35">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Dice &amp; Slice — Dungeon Pizzeria</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍕</text></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- TITLE -->
+  <div class="screen active" id="scr-title">
+    <div class="title-art">
+      <div class="logo-dice">🎲</div>
+      <div class="logo-pizza">🍕</div>
+    </div>
+    <h1 class="logo">DICE <span class="amp">&amp;</span> SLICE</h1>
+    <p class="tagline">Dungeon Pizzeria Management Simulator</p>
+    <p class="tagline2">You roll the dough. The dungeon rolls you.</p>
+    <div class="title-buttons">
+      <button class="btn primary big" data-act="newgame">🍽️ New Game</button>
+      <button class="btn big hidden" id="btn-continue" data-act="continue">📜 Continue</button>
+      <button class="btn big" id="btn-franchise" data-act="franchise">🏛️ Franchise</button>
+      <button class="btn big" data-act="help">❓ How To Play</button>
+      <button class="btn big ghost" data-act="mute" id="btn-mute"></button>
+    </div>
+    <p class="credits">A silly homage to Slice &amp; Dice and tavern sims.<br>Runs entirely offline. Saves on your phone.</p>
+  </div>
+
+  <!-- DAY (battle) -->
+  <div class="screen" id="scr-day">
+    <header id="topbar"></header>
+    <main id="custlist"></main>
+    <div id="tray">
+      <div id="trayhint"></div>
+      <div id="dicegrid"></div>
+      <div id="actions"></div>
+    </div>
+    <button id="specials-tab" data-act="specials" aria-label="Special faces legend">📖 SPECIALS</button>
+    <aside id="specials-panel"><div id="specials-body"></div></aside>
+    <div id="facetip"></div>
+  </div>
+
+  <!-- SHOP -->
+  <div class="screen" id="scr-shop">
+    <header id="shopbar"></header>
+    <main id="shopbody"></main>
+    <footer id="shopfoot"></footer>
+  </div>
+
+  <!-- GAME OVER -->
+  <div class="screen" id="scr-over"></div>
+
+  <div id="toasts"></div>
+  <div id="fx"></div>
+  <div id="overlay" class="hidden"><div id="modal"></div></div>
+</div>
+<script src="game.js"></script>
+</body>
+</html>

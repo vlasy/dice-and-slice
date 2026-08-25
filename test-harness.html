@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Test Harness — Dice &amp; Slice</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <div class="screen active" id="scr-title">
+    <div class="title-art">
+      <div class="logo-dice">🎲</div>
+      <div class="logo-pizza">🍕</div>
+    </div>
+    <h1 class="logo">DICE <span class="amp">&amp;</span> SLICE</h1>
+    <p class="tagline">Dungeon Pizzeria Management Simulator</p>
+    <p class="tagline2">You roll the dough. The dungeon rolls you.</p>
+    <div class="title-buttons">
+      <button class="btn primary big" data-act="newgame">🍽️ New Game</button>
+      <button class="btn big hidden" id="btn-continue" data-act="continue">📜 Continue</button>
+      <button class="btn big" id="btn-franchise" data-act="franchise">🏛️ Franchise</button>
+      <button class="btn big" data-act="help">❓ How To Play</button>
+      <button class="btn big ghost" data-act="mute" id="btn-mute"></button>
+    </div>
+  </div>
+
+  <div class="screen" id="scr-day">
+    <header id="topbar"></header>
+    <main id="custlist"></main>
+    <div id="tray">
+      <div id="trayhint"></div>
+      <div id="dicegrid"></div>
+      <div id="actions"></div>
+    </div>
+    <button id="specials-tab" data-act="specials" aria-label="Special faces legend">📖 SPECIALS</button>
+    <aside id="specials-panel"><div id="specials-body"></div></aside>
+    <div id="facetip"></div>
+  </div>
+
+  <div class="screen" id="scr-shop">
+    <header id="shopbar"></header>
+    <main id="shopbody"></main>
+    <footer id="shopfoot"></footer>
+  </div>
+
+  <div class="screen" id="scr-over"></div>
+
+  <div id="toasts"></div>
+  <div id="fx"></div>
+  <div id="overlay" class="hidden"><div id="modal"></div></div>
+</div>
+<pre id="results"></pre>
+<script src="game.js"></script>
+<script>
+'use strict';
+const q = s => document.querySelector(s);
+const qa = s => [...document.querySelectorAll(s)];
+const mode = new URLSearchParams(location.search).get('mode') || 'test';
+const resultsEl = q('#results');
+let pass = 0, fail = 0;
+function r(s){ resultsEl.textContent += s + '\n'; }
+function ok(cond, msg){ if(cond){ pass++; r('✅ ' + msg); } else { fail++; r('❌ ' + msg); } }
+function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
+async function waitFor(fn, timeout = 6000, label = 'cond'){
+  const t0 = Date.now();
+  while(!fn()){
+    if(Date.now() - t0 > timeout) throw new Error('timeout waiting for ' + label);
+    await sleep(20);
+  }
+}
+if(mode !== 'test') resultsEl.style.display = 'none';
+
+let TRACE = [];
+const snap = () => 'w' + S.wave + ' sel=' + S.selId + ' custs=' + JSON.stringify(S.customers.map(c => ({ id: c.id, o: c.order.map(s => s.t + (s.done ? '+' : '-')), p: c.patience }))) + ' dice=' + JSON.stringify(S.dice.map((d, i) => S.staff[i].faces[d.i].t + (d.used ? '(u)' : '')));
+
+async function playOneDay(){
+  for(let guard = 0; guard < 40; guard++){
+    if(S.phase === 'roll'){
+      const btn = q('#actions [data-act="roll"]');
+      btn.click();
+      await waitFor(() => S.phase === 'act', 4000, 'act phase');
+    }
+    TRACE.push(snap());
+    if(S.phase === 'act'){
+      for(let i = 0; i < S.dice.length; i++){
+        if(S.dice[i].used) continue;
+        useDie(i);
+      }
+      // smart-player move: burn every free reroll on dice that couldn't help
+      for(let k = 0; k < 4; k++){
+        const rb = q('#actions [data-act="reroll-unused"]');
+        if(!rb || S.phase !== 'act' || !S.dice.some(d => !d.used)) break;
+        rb.click();
+        for(let i = 0; i < S.dice.length; i++){
+          if(S.dice[i].used) continue;
+          useDie(i);
+        }
+      }
+      TRACE.push('  after: ' + snap() + ' served=' + S.dayStats.served);
+      if(S.phase === 'act') q('#actions [data-act="endturn"]').click();
+    }
+    await waitFor(() => S.phase === 'roll' || !q('#overlay').classList.contains('hidden'), 8000, 'wave advance');
+    if(!q('#overlay').classList.contains('hidden')) return; // summary modal is up
+  }
+  throw new Error('day did not end within guard limit');
+}
+
+async function main(){
+  try{
+    q('[data-act="newgame"]').click();
+    ok(q('#scr-day').classList.contains('active'), 'day screen shows');
+    ok(q('#topbar').textContent.includes('Day 1'), 'topbar shows Day 1');
+    await waitFor(() => S.phase === 'roll' && S.dice.length === 3, 3000, 'initial roll phase');
+    ok(S.staff.length === 3, 'start with 3 staff dice');
+    ok(S.customers.length >= 1, 'customers arrived on day 1');
+    ok(S.customers[0].order.length <= 4, 'day-1 orders are small (<=4 slots incl bake, got ' + S.customers[0].order.length + ')');
+    ok(S.customers.every(c => c.patience >= 7), 'day-1 patience is generous (>=7)');
+
+    q('#actions [data-act="roll"]').click();
+    await waitFor(() => S.phase === 'act', 3000, 'act after roll');
+    ok(S.dice.every(d => d.i >= 0), 'all dice have faces after rolling');
+
+    // specials legend drawer
+    const tab = q('#specials-tab');
+    ok(!!tab, 'SPECIALS tab exists on day screen');
+    tab.click();
+    ok(q('#specials-panel').classList.contains('open'), 'SPECIALS panel opens');
+    ok($$('#specials-panel .sp-row').length >= 6, 'SPECIALS panel lists face effects (' + $$('#specials-panel .sp-row').length + ' rows)');
+    ok(/Espresso/.test(q('#specials-body').textContent) && /Chaos Toss/.test(q('#specials-body').textContent), 'SPECIALS panel explains espresso and reroll faces');
+    q('#specials-panel [data-act="closespecials"]').click();
+    ok(!q('#specials-panel').classList.contains('open'), 'SPECIALS panel closes');
+
+    // long-press face tip + tap suppression
+    const die0 = q('#dicegrid .die');
+    die0.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 50 }));
+    await sleep(650);
+    ok(q('#facetip').classList.contains('show'), 'long-press shows the face effect tip');
+    ok(q('#facetip').textContent.length > 5, 'tip contains the face description');
+    die0.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    die0.click();
+    ok(!S.dice[0].used, 'tap right after long-press does NOT spend the die');
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 5, clientY: 5 }));
+    ok(!q('#facetip').classList.contains('show'), 'tip dismisses on next tap');
+
+    await playOneDay();
+    if(S.dayStats.served === 0) r('TRACE:\n' + TRACE.join('\n'));
+    ok(S.dayStats.served >= 1, 'greedy play finishes orders on day 1 (served=' + S.dayStats.served + ')');
+    ok(!q('#overlay').classList.contains('hidden'), 'day summary modal appeared');
+    ok(/Day 1 closed/.test(q('#modal').textContent), 'summary says Day 1 closed');
+
+    q('#overlay [data-act="sum-ok"]').click();
+    await sleep(60);
+    if(q('#overlay [data-act="evopt"]')){
+      const btn = qa('#overlay [data-act="evopt"]').filter(b => !b.disabled)[0];
+      if(btn) btn.click();
+      await sleep(40);
+      q('#overlay [data-act="ev-done"]').click();
+      ok(true, 'random event played out');
+    }
+    await waitFor(() => q('#scr-shop').classList.contains('active'), 3000, 'shop screen');
+    ok(true, 'shop reached');
+    ok(/Hire Staff/.test(q('#shopbody').textContent), 'shop lists hires');
+    ok(/Upgrade Faces/.test(q('#shopbody').textContent), 'shop lists upgrades');
+
+    const goldBefore = S.gold;
+    const upg = q('#shopbody [data-act="upg"]:not([disabled])');
+    if(upg){ upg.click(); ok(S.gold < goldBefore, 'upgrade purchase deducted gold'); }
+    else r('ℹ️ no affordable upgrades this run');
+
+    // deterministic hire check: fund the wallet, buy the first offer
+    if(S.hireOffers.length && S.staff.length < 6){
+      const before = S.staff.length;
+      S.gold = 500; renderShop();
+      q('#shopbody [data-act="hire"]:not([disabled])').click();
+      ok(S.staff.length === before + 1, 'hiring adds a staff member (dice next day)');
+      ok(S.gold < 500, 'hire deducted gold');
+    } else r('ℹ️ no hire offers available');
+
+    q('#shopfoot [data-act="openday"]').click();
+    await waitFor(() => q('#scr-day').classList.contains('active') && S.day === 2, 3000, 'day 2');
+    ok(S.day === 2, 'day 2 started');
+    ok(S.staff.length >= 3, 'staff intact on day 2');
+
+    ok(!!localStorage.getItem('dice-slice-save-v2'), 'autosave exists');
+    const g = S.gold, staffN = S.staff.length;
+    ok(load() === true, 'load() returns true');
+    ok(S.gold === g && S.staff.length === staffN && S.day === 2, 'loaded state matches');
+
+    S.hearts = 1; S.phase = 'act';
+    S.dice.forEach(d => { d.i = 0; d.used = false; }); // a face on every die, as a real roll would
+    const c = genCust(false); c.patience = 0; S.customers = [c];
+    endTurn();
+    await waitFor(() => q('#scr-over').classList.contains('active'), 6000, 'game over screen');
+    ok(/Shut Down/.test(q('#scr-over').textContent), 'game over screen renders');
+    ok(!localStorage.getItem('dice-slice-save-v2'), 'save cleared on game over');
+
+    // meta progression
+    ok(meta.fame > 0, 'fame earned from the finished run (+' + meta.fame + ')');
+    ok(meta.runs >= 1 && meta.bestDay >= 2, 'meta run stats recorded (runs=' + meta.runs + ', best=' + meta.bestDay + ')');
+    ok(/Fame banked/.test(q('#scr-over').textContent), 'game over shows fame gained');
+    q('#scr-over [data-act="franchise"]').click();
+    ok($$('#modal .shop-card').length >= 9, 'franchise ledger lists perks + staff (' + $$('#modal .shop-card').length + ' cards)');
+    let gb = q('#modal [data-act="perk-buy"][data-id="gold"]');
+    if(!gb || gb.disabled){ meta.fame = 100; showFranchise(); gb = q('#modal [data-act="perk-buy"][data-id="gold"]'); }
+    gb.click();
+    ok(perkLvl('gold') === 1, 'fame buys a permanent perk');
+    q('#modal [data-act="closemodal"]').click();
+    q('#scr-over [data-act="restart"]').click();
+    ok(S.gold === 10 + 8 * perkLvl('gold'), 'perk applies to the new run (gold=' + S.gold + ')');
+    ok(!poolStaff().includes('crumb') && !poolStaff().includes('nonna'), 'locked staff excluded from hire pool');
+    meta.fame += 60; saveMeta(); showFranchise();
+    q('#modal [data-act="meta-staff"][data-id="crumb"]').click();
+    ok(meta.staff.includes('crumb'), 'fame unlocks Captain Crumb');
+    ok(poolStaff().includes('crumb'), 'unlocked staff joins the hire pool');
+    hideModal();
+
+    ok(window.__errs.length === 0, 'zero runtime errors' + (window.__errs.length ? ': ' + window.__errs.join(' | ') : ''));
+    r('\nRESULT: ' + pass + ' passed, ' + fail + ' failed');
+  }catch(err){
+    r('❌ FATAL: ' + (err && err.stack || err));
+    r('RESULT: ' + pass + ' passed, ' + fail + ' failed (+1 fatal)');
+  }
+}
+
+async function setupShot(){
+  q('[data-act="newgame"]').click();
+  if(mode === 'day'){
+    await waitFor(() => S.phase === 'roll', 2000, 'roll');
+    q('#actions [data-act="roll"]').click();
+    await waitFor(() => S.phase === 'act', 2000, 'act');
+    for(let i = 0; i < S.dice.length; i++){
+      if(!S.dice[i].used){ useDie(i); break; }
+    }
+  } else if(mode === 'shop'){
+    S.hireOffers = makeOffers();
+    openShop();
+  } else if(mode === 'specials'){
+    S.hireOffers = makeOffers();
+    q('[data-act="newgame"]').click();
+    await waitFor(() => S.phase === 'roll', 2000, 'roll');
+    q('#actions [data-act="roll"]').click();
+    await waitFor(() => S.phase === 'act', 2000, 'act');
+    q('#specials-tab').click();
+  } else if(mode === 'franchise'){
+    meta.fame = 42; meta.runs = 3; meta.bestDay = 7; meta.totPizzas = 31;
+    showFranchise();
+  } else if(mode === 'gameover'){
+    S.hearts = 0;
+    gameOver();
+  }
+}
+
+function layoutCheck(){
+  try{
+    // headless dump-dom pins innerWidth to 500 on this box, so simulate the
+    // Pixel 6A CSS width directly and measure against it
+    const W = 412;
+    q('#app').style.maxWidth = W + 'px';
+    const bad = [];
+    const views = [['day', () => { q('[data-act="newgame"]').click(); }],
+                  ['shop', () => { S.hireOffers = makeOffers(); openShop(); }],
+                  ['specials-open', () => { q('#specials-panel').classList.add('open'); }]];
+    views.forEach(([name, setup]) => {
+      setup();
+      const appLeft = q('#app').getBoundingClientRect().left;
+      document.querySelectorAll('#app *').forEach(el => {
+        const r = el.getBoundingClientRect();
+        if(r.width > 0 && (r.right - appLeft > W + 1 || r.left < appLeft - 1)){
+          bad.push(name + ': <' + el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.split(' ').join('.') : '') + '> left=' + Math.round(r.left - appLeft) + ' right=' + Math.round(r.right - appLeft) + ' vw=' + W);
+        }
+      });
+    });
+    r('viewport=' + W + 'x' + window.innerHeight);
+    r(bad.length ? bad.join('\n') : 'NO OVERFLOW');
+    r('RESULT: layout check done');
+  }catch(err){ r('LAYOUTCHECK ERROR: ' + (err && err.stack || err)); }
+}
+
+async function stress(){
+  resultsEl.style.display = 'block';
+  window.addEventListener('error', ev => r('WINDOW ERROR: ' + ev.message + ' @' + (ev.filename||'') + ':' + (ev.lineno||0)));
+  r('stress started');
+  try{
+    q('[data-act="newgame"]').click();
+    while(S.day <= 6){
+      await playOneDay();
+      if(!q('#overlay [data-act="sum-ok"]')) throw new Error('no summary after day ' + S.day);
+      q('#overlay [data-act="sum-ok"]').click();
+      await sleep(60);
+      if(q('#overlay [data-act="evopt"]')){
+        const btn = qa('#overlay [data-act="evopt"]').filter(b => !b.disabled)[0];
+        if(btn) btn.click();
+        await sleep(40);
+        q('#overlay [data-act="ev-done"]').click();
+      }
+      await waitFor(() => q('#scr-shop').classList.contains('active'), 3000, 'shop');
+      // spend greedily: upgrades, then hire, then equipment
+      let bought = true;
+      while(bought){
+        bought = false;
+        const u = q('#shopbody [data-act="upg"]:not([disabled])');
+        if(u){ u.click(); bought = true; continue; }
+        const h = q('#shopbody [data-act="hire"]:not([disabled])');
+        if(h){ h.click(); bought = true; continue; }
+        const it = q('#shopbody [data-act="item"]:not([disabled])');
+        if(it){ it.click(); bought = true; }
+      }
+      r('day ' + S.day + ' done: gold=' + S.gold + ' hearts=' + S.hearts + ' staff=' + S.staff.length);
+      q('#shopfoot [data-act="openday"]').click();
+      await waitFor(() => S.day > 1 || q('#scr-day').classList.contains('active'), 3000, 'next day');
+      await sleep(100);
+    }
+    r('stress survived through day 6');
+    ok(window.__errs.length === 0, 'zero runtime errors' + (window.__errs.length ? ': ' + window.__errs.join(' | ') : ''));
+    r('\nRESULT: ' + pass + ' passed, ' + fail + ' failed');
+  }catch(err){
+    r('❌ FATAL at day ' + (S ? S.day : '?') + ': ' + (err && err.stack || err));
+    r('errors: ' + window.__errs.join(' | '));
+    r('RESULT: ' + pass + ' passed, ' + fail + ' failed (+1 fatal)');
+  }
+}
+
+if(mode === 'test') main();
+else if(mode === 'layoutcheck'){ resultsEl.style.display = 'block'; layoutCheck(); }
+else if(mode === 'stress') stress();
+else if(mode === 'debug') debug();
+else if(mode === 'reload') reloadTest();
+else setupShot();
+
+async function reloadTest(){
+  resultsEl.style.display = 'block';
+  const step = new URLSearchParams(location.search).get('step');
+  if(step !== '2'){
+    q('[data-act="newgame"]').click();
+    await waitFor(() => S.phase === 'roll', 3000, 'roll');
+    q('#actions [data-act="roll"]').click();
+    await waitFor(() => S.phase === 'act', 3000, 'act');
+    for(let i = 0; i < S.dice.length; i++){ useDie(i); if(S.dice[i].used) break; }
+    localStorage.setItem('reload-expected', JSON.stringify({
+      day: S.day, wave: S.wave, gold: S.gold, phase: S.phase,
+      used: S.dice.map(d => d.used), custs: S.customers.length,
+    }));
+    r('step 1 done: state saved mid-wave, now reload with &step=2');
+  } else {
+    const exp = JSON.parse(localStorage.getItem('reload-expected'));
+    ok(!!localStorage.getItem('dice-slice-save-v2'), 'save survived a real page reload');
+    ok(!q('#btn-continue').classList.contains('hidden'), 'Continue button visible after reload');
+    q('#btn-continue').click();
+    ok(q('#scr-day').classList.contains('active'), 'continue reopens the day screen');
+    ok(S.day === exp.day && S.wave === exp.wave && S.phase === exp.phase,
+       'day/wave/phase restored (' + S.day + '/' + S.wave + '/' + S.phase + ')');
+    ok(JSON.stringify(S.dice.map(d => d.used)) === JSON.stringify(exp.used), 'dice usage restored');
+    ok(S.gold === exp.gold, 'gold restored (' + S.gold + ' vs ' + exp.gold + ')');
+    ok(S.customers.length === exp.custs, 'customers restored (' + S.customers.length + ')');
+    ok(window.__errs.length === 0, 'no runtime errors on resume');
+    r('RESULT: ' + pass + ' passed, ' + fail + ' failed');
+  }
+}
+
+async function debug(){
+  resultsEl.style.display = 'block';
+  q('[data-act="newgame"]').click();
+  await waitFor(() => S.phase === 'roll', 2000, 'roll');
+  for(let w = 0; w < S.waves + 2; w++){
+    if(S.phase === 'roll'){
+      q('#actions [data-act="roll"]').click();
+      await waitFor(() => S.phase === 'act', 3000, 'act');
+    }
+    r('WAVE ' + S.wave + ' sel=' + S.selId + ' custs: ' + JSON.stringify(S.customers.map(c => ({ n: firstName(c), o: c.order.map(s => s.t + (s.done ? '+' : '-')), p: c.patience }))));
+    r('  dice: ' + JSON.stringify(S.dice.map((d, i) => S.staff[i].faces[d.i].t + (d.used ? '(used)' : ''))));
+    for(let i = 0; i < S.dice.length; i++){ if(!S.dice[i].used) useDie(i); }
+    r('  pass1: ' + JSON.stringify(S.dice.map((d, i) => S.staff[i].faces[d.i].t + (d.used ? '(used)' : ''))) + ' served=' + S.dayStats.served);
+    const rb = q('#actions [data-act="reroll-unused"]');
+    if(rb && S.phase === 'act'){
+      rb.click();
+      for(let i = 0; i < S.dice.length; i++){ if(!S.dice[i].used) useDie(i); }
+      r('  pass2: ' + JSON.stringify(S.dice.map((d, i) => S.staff[i].faces[d.i].t + (d.used ? '(used)' : ''))) + ' served=' + S.dayStats.served);
+    } else r('  no reroll btn');
+    if(S.phase === 'act') q('#actions [data-act="endturn"]').click();
+    await waitFor(() => S.phase === 'roll' || !q('#overlay').classList.contains('hidden'), 8000, 'next');
+    if(!q('#overlay').classList.contains('hidden')){ r('overlay: ' + q('#modal').textContent.replace(/\s+/g,' ').slice(0, 100)); break; }
+  }
+  r('FINAL: ' + JSON.stringify(S.dayStats) + ' hearts=' + S.hearts + ' gold=' + S.gold);
+  r('errors: ' + window.__errs.join(' | '));
+  r('DEBUG DONE');
+}
+</script>
+</body>
+</html>

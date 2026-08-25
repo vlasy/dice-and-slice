@@ -1,0 +1,12 @@
+{
+  "name": "Dice & Slice — Dungeon Pizzeria",
+  "short_name": "Dice&Slice",
+  "description": "A funny dice-rolling dungeon pizzeria management sim.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#241b35",
+  "theme_color": "#241b35",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
